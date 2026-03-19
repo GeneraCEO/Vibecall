@@ -1,0 +1,9 @@
+import { VideoView } from '@livekit/react-native';
+
+// Replace the placeholder with:
+<VideoView
+  style={StyleSheet.absoluteFill}
+  videoTrack={participant.getTrackPublication('camera')?.track}
+  mirror={isLocal}
+  objectFit="cover"
+/>
