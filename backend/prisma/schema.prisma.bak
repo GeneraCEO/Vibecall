@@ -1,0 +1,253 @@
+// prisma/schema.prisma
+// VibeCall — Stripe removed, Adapty.io integrated
+// Run: npx prisma migrate dev --name remove_stripe_add_adapty
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum SubscriptionTier {
+  FREE
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+}
+
+enum RecordingStatus {
+  RECORDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum ParticipantRole {
+  HOST
+  PARTICIPANT
+  GUEST
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String
+  password   String
+  avatarUrl  String?
+  isVerified Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Adapty subscription (replaces all Stripe fields)
+  subscriptionTier   SubscriptionTier   @default(FREE)
+  subscriptionStatus SubscriptionStatus?
+  adaptyProfileId    String?            @unique  // Adapty's profile UUID
+  subscriptionEndsAt DateTime?
+  trialEndsAt        DateTime?
+  trialUsed          Boolean            @default(false)
+
+  // Relations
+  hostedRooms    Room[]            @relation("RoomHost")
+  participations RoomParticipant[]
+  recordings     Recording[]
+  chatMessages   ChatMessage[]
+  refreshTokens  RefreshToken[]
+  geoData        ParticipantGeo[]
+
+  @@index([email])
+  @@index([adaptyProfileId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Room {
+  id              String  @id @default(cuid())
+  name            String
+  code            String  @unique  // e.g. "VBC-7X4K" — user-facing join code
+  hostId          String
+  host            User    @relation("RoomHost", fields: [hostId], references: [id])
+
+  // Settings
+  encrypted        Boolean @default(true)
+  password         String? // bcrypt-hashed if protected
+  waitingRoom      Boolean @default(false)
+  maxParticipants  Int     @default(300)
+  allowScreenShare Boolean @default(true)
+  allowRecording   Boolean @default(true)
+  allowChat        Boolean @default(true)
+  allowHandRaise   Boolean @default(true)
+
+  // State
+  isActive  Boolean   @default(false)
+  isEnded   Boolean   @default(false)
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  participants RoomParticipant[]
+  recordings   Recording[]
+  chatMessages ChatMessage[]
+  summary      MeetingSummary?
+  transcripts  MeetingTranscript[]
+  analytics    MeetingAnalytics?
+
+  @@index([code])
+  @@index([hostId])
+}
+
+model RoomParticipant {
+  id      String @id @default(cuid())
+  roomId  String
+  room    Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+
+  role     ParticipantRole @default(PARTICIPANT)
+  joinedAt DateTime        @default(now())
+  leftAt   DateTime?
+  isActive Boolean         @default(true)
+
+  // Media state snapshot (for analytics)
+  isMuted    Boolean @default(false)
+  isVideoOff Boolean @default(false)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+model Recording {
+  id        String          @id @default(cuid())
+  roomId    String
+  room      Room            @relation(fields: [roomId], references: [id])
+  startedBy String
+  user      User            @relation(fields: [startedBy], references: [id])
+
+  // LiveKit Egress
+  egressId  String?         @unique
+
+  // Storage
+  s3Key     String?
+  s3Bucket  String?
+  fileSize  BigInt          @default(0)
+  mimeType  String          @default("video/mp4")
+  duration  Int             @default(0)  // seconds
+  status    RecordingStatus @default(RECORDING)
+  title     String?
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  updatedAt DateTime  @updatedAt
+
+  @@index([roomId])
+  @@index([startedBy])
+}
+
+model ChatMessage {
+  id     String @id @default(cuid())
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  text      String
+  encrypted Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([roomId])
+  @@index([userId])
+}
+
+// ── AI features ───────────────────────────────────────────────────────────────
+
+model MeetingSummary {
+  id          String   @id @default(cuid())
+  roomId      String   @unique
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  summary     String   // JSON: { overview, actionItems[], decisions[], nextSteps[] }
+  transcript  String?  // Full "[Speaker 0] text\n[Speaker 1]..." — for search
+  emailSent   Boolean  @default(false)
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([roomId])
+}
+
+model MeetingTranscript {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  speaker   Int      // Deepgram speaker index
+  text      String   // Utterance text
+  startSec  Float?   // Timestamp in call (seconds)
+  sentiment String?  // positive | neutral | negative
+  isFiller  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([roomId])
+  @@index([text])   // enables full-text search
+}
+
+model MeetingAnalytics {
+  id              String   @id @default(cuid())
+  roomId          String   @unique
+  room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  totalDuration   Int      @default(0)   // seconds
+  speakerStats    String?  // JSON: [{ speaker, talkTime, fillerCount, sentiment }]
+  chapters        String?  // JSON: [{ ts, title }]
+  engagementScore Int      @default(0)
+  dominantSentiment String @default("neutral")
+  participantCount  Int    @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([roomId])
+}
+
+model ParticipantGeo {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  roomCode    String
+
+  country     String
+  countryCode String   @default("XX")
+  city        String?
+  region      String?
+  timezone    String?
+  isp         String?
+  lat         Float?
+  lng         Float?
+  ip          String?
+
+  joinedAt    DateTime @default(now())
+
+  @@index([roomCode])
+  @@index([country])
+  @@index([userId])
+}

@@ -1,0 +1,25 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: 'Google Sans', 'Roboto', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: #FFFFFF;
+  color: #202124;
+}
+
+input, button, textarea {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #DADCE0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #BDC1C6; }
+
+/* LiveKit component overrides */
+@import "@livekit/components-styles";
