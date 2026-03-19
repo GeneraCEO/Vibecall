@@ -1,0 +1,5 @@
+"extra": {
+  "adaptyPublicKey": "public_live_YOUR_KEY",
+  "apiUrl": "https://your-app.up.railway.app",
+  "liveKitUrl": "wss://vibecall-xizkbpz8.livekit.cloud"
+}
